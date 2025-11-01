@@ -51,6 +51,8 @@
 sem_t runway_sem;  // controls how mnay aircrafts can be on runway
 pthread_mutex_t lock; // protects shared variables
 int runway_type = RUNWAY_EMPTY;
+pthread_cond_t controller_break_cond;   // for signaling when break is done
+int controller_on_break = 0;            // 1 = controller resting, 0 = working
 
 /* basic information about simulation.  they are printed/checked at the end 
  * and in assert statements during execution.
@@ -98,6 +100,10 @@ static int initialize(aircraft_info *ai, char *filename)
   runway_type = RUNWAY_EMPTY;
   sem_init(&runway_sem, 0, MAX_RUNWAY_CAPACITY);
   pthread_mutex_init(&lock, NULL);
+  sem_init(&runway_sem, 0, MAX_RUNWAY_CAPACITY);
+  pthread_cond_init(&controller_break_cond, NULL);
+  controller_on_break = 0;
+
 
   /* seed random number generator for fuel reserves */
   srand(time(NULL));
@@ -185,7 +191,23 @@ void *controller_thread(void *arg)
     /* without regard for runway capacity, aircraft type, direction,      */
     /* priorities, and whether the controller needs a break.              */
     /* You need to add all of this.                                       */
+    pthread_mutex_lock(&lock);
+
+    if (aircraft_since_break >= CONTROLLER_LIMIT) {
+      controller_on_break = 1;
+      pthread_mutex_unlock(&lock);
+
+      take_break();
+
+      pthread_mutex_unlock(&lock);
+      controller_on_break = 0;
+      aircraft_since_break = 0;
+      
+      pthread_cond_broadcast(&controller_break_cond);
+    }
     
+    pthread_mutex_unlock(&lock);
+
     /* Allow thread to be cancelled */
     pthread_testcancel();
     usleep(100000); // 100ms sleep to prevent busy waiting
@@ -213,6 +235,12 @@ void commercial_enter(aircraft_info *arg)
 
   pthread_mutex_lock(&lock);
 
+  // wait if controller on break
+  while (controller_on_break) {
+    pthread_cond_wait(&controller_break_cond, &lock);
+  }
+
+  // wait if cargo is on runway
   while (runway_type == CARGO) {
     pthread_mutex_unlock(&lock);
     usleep(100000);
@@ -249,6 +277,12 @@ void cargo_enter(aircraft_info *ai)
 
   pthread_mutex_lock(&lock);
 
+   // wait if controller on break
+  while (controller_on_break) {
+    pthread_cond_wait(&controller_break_cond, &lock);
+  }
+
+  // wait if commercial is on runway
   while (runway_type == COMMERCIAL) {
     pthread_mutex_unlock(&lock);
     usleep(100000);
@@ -285,6 +319,12 @@ void emergency_enter(aircraft_info *ai)
   sem_wait(&runway_sem);
 
   pthread_mutex_lock(&lock);
+
+   // wait if controller on break
+  while (controller_on_break) {
+    pthread_cond_wait(&controller_break_cond, &lock);
+  }
+
   aircraft_on_runway = aircraft_on_runway + 1;
   aircraft_since_break = aircraft_since_break + 1;
   emergency_on_runway = emergency_on_runway + 1;
