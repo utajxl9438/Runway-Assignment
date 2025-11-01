@@ -35,6 +35,7 @@
 #define DIRECTION_SWITCH_TIME 5  /* Time required to switch runway direction */
 #define DIRECTION_LIMIT 3        /* Max consecutive aircraft in same direction */
 
+#define RUNWAY_EMPTY -1
 #define COMMERCIAL 0
 #define CARGO 1
 #define EMERGENCY 2
@@ -49,6 +50,7 @@
 
 sem_t runway_sem;  // controls how mnay aircrafts can be on runway
 pthread_mutex_t lock; // protects shared variables
+int runway_type = RUNWAY_EMPTY;
 
 /* basic information about simulation.  they are printed/checked at the end 
  * and in assert statements during execution.
@@ -93,6 +95,7 @@ static int initialize(aircraft_info *ai, char *filename)
   /* Initialize your synchronization variables (and 
    * other variables you might use) here
    */
+  runway_type = RUNWAY_EMPTY;
   sem_init(&runway_sem, 0, MAX_RUNWAY_CAPACITY);
   pthread_mutex_init(&lock, NULL);
 
@@ -209,10 +212,22 @@ void commercial_enter(aircraft_info *arg)
   sem_wait(&runway_sem);
 
   pthread_mutex_lock(&lock);
+
+  while (runway_type == CARGO) {
+    pthread_mutex_unlock(&lock);
+    usleep(100000);
+    pthread_mutex_lock(&lock);
+  }
+
+  if  (runway_type == RUNWAY_EMPTY) {
+    runway_type = COMMERCIAL;
+  }
+
   aircraft_on_runway    = aircraft_on_runway + 1;
   aircraft_since_break  = aircraft_since_break + 1;
   commercial_on_runway  = commercial_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
+
   pthread_mutex_unlock(&lock);
 }
 
@@ -233,10 +248,22 @@ void cargo_enter(aircraft_info *ai)
   sem_wait(&runway_sem);
 
   pthread_mutex_lock(&lock);
+
+  while (runway_type == COMMERCIAL) {
+    pthread_mutex_unlock(&lock);
+    usleep(100000);
+    pthread_mutex_lock(&lock);
+  }
+
+  if (runway_type == RUNWAY_EMPTY) {
+    runway_type == CARGO;
+  }
+
   aircraft_on_runway    = aircraft_on_runway + 1;
   aircraft_since_break  = aircraft_since_break + 1;
   cargo_on_runway       = cargo_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
+
   pthread_mutex_unlock(&lock);
 }
 
@@ -287,6 +314,11 @@ static void commercial_leave()
   pthread_mutex_lock(&lock);
   aircraft_on_runway = aircraft_on_runway - 1;
   commercial_on_runway = commercial_on_runway - 1;
+
+  if(aircraft_on_runway == 0) {
+    runway_type = RUNWAY_EMPTY;
+  }
+
   pthread_mutex_unlock(&lock);
 
   // free up runway slot
@@ -306,6 +338,10 @@ static void cargo_leave()
   pthread_mutex_lock(&lock);
   aircraft_on_runway = aircraft_on_runway - 1;
   cargo_on_runway = cargo_on_runway - 1;
+
+  if (aircraft_on_runway == 0) {
+    runway_type = RUNWAY_EMPTY;
+  }
   pthread_mutex_unlock(&lock);
 
   sem_post(&runway_sem);
