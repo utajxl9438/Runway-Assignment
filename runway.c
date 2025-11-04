@@ -58,7 +58,7 @@
  */
 
 sem_t runway_sem;  // controls how mnay aircrafts can be on runway
-pthread_mutex_t lock = PTHREAD_COND_INITIALIZER; // protects shared variables
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER; // protects shared variables
 pthread_cond_t cond_check = PTHREAD_COND_INITIALIZER;
 
 static int aircraft_on_runway = 0;       /* Total number of aircraft currently on runway */
