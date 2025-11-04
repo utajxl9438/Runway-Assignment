@@ -85,9 +85,14 @@ typedef struct
   time_t arrival_timestamp; // timestamp when aircraft thread was created
 } aircraft_info;
 
-/* Called at beginning of simulation.  
- * TODO: Create/initialize all synchronization
- * variables and other global variables that you add.
+/* 
+* Function:   initialize
+* Parameters: ai - pointer to aircraft_info array to populate 
+*             filename - string containing input file path
+* Returns: int - number of aircraft successfully loaded from file
+* Description: initializes all simulation variables and synchroniztion primitives.
+*             Reads aircraft data from input file and assigns random fuel reserves
+*             to each aircraft.
  */
 static int initialize(aircraft_info *ai, char *filename) 
 {
@@ -173,8 +178,13 @@ __attribute__((unused)) static void switch_direction()
          current_direction == NORTH ? "NORTH" : "SOUTH");
 }
 
-/* Code for the air traffic controller thread. This is fully implemented except for 
- * synchronization with the aircraft. See the comments within the function for details.
+/* 
+* Function: controller_thread
+* Parameters: arg - void pointer for pthread compatability
+* Returns: void* - NULL on exit
+* Description - main thread function for the air traffic controller. The function 
+*               monitors runway state, handles direction switches when consecutive limit 
+*               is reached, or opposite trafic is waiting, manages controller breaks as well
  */
 void *controller_thread(void *arg) 
 {
@@ -218,7 +228,7 @@ void *controller_thread(void *arg)
         pthread_cond_broadcast(&cond_check);
       }
     
-    if (aircraft_since_break >= CONTROLLER_LIMIT) {
+    if (aircraft_since_break >= CONTROLLER_LIMIT - 1) {
       controller_break = 1;
       while (aircraft_on_runway > 0) {
         pthread_cond_wait(&cond_check, &lock);
@@ -358,9 +368,13 @@ static void use_runway(int t)
 }
 
 
-/* Code executed by a commercial aircraft when leaving the runway.
- * You need to implement this.  Do not delete the assert() statements,
- * but feel free to add as many of your own as you like.
+/* 
+* Function: commercial_leave
+* Parameters: None
+* Returns: void
+* Description: handles synchronization when a commercial aircraft departs the runway. will
+*              decrement aircraft counter and signals waiting threads that runway space may
+*              be available.
  */
 static void commercial_leave() 
 {
@@ -377,9 +391,13 @@ static void commercial_leave()
   pthread_mutex_unlock(&lock);
 }
 
-/* Code executed by a cargo aircraft when leaving the runway.
- * You need to implement this.  Do not delete the assert() statements,
- * but feel free to add as many of your own as you like.
+/* 
+* Function: cargo_leave
+* Parameters: None
+* Returns: void
+* Description: handles synchronization when a cargo aircraft departs the runway. will
+*              decrement aircraft counter and signals waiting threads that runway space may
+*              be available.
  */
 static void cargo_leave() 
 {
@@ -396,9 +414,13 @@ static void cargo_leave()
   pthread_mutex_unlock(&lock);
 }
 
-/* Code executed by an emergency aircraft when leaving the runway.
- * You need to implement this.  Do not delete the assert() statements,
- * but feel free to add as many of your own as you like.
+/* 
+* Function: emergency_leave
+* Parameters: None
+* Returns: void
+* Description: handles synchronization when a emergency aircraft departs the runway. will
+*              decrement aircraft counter and signals waiting threads that runway space may
+*              be available.
  */
 static void emergency_leave() 
 {
