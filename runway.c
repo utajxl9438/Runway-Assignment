@@ -13,7 +13,10 @@
 * You should have received a copy of the GNU General Public License
 * along with this program.  If not, see <http://www.gnu.org/license/>.
 */
- 
+// Jacob Louanlavong, 100216948
+
+#define _GNU_SOURCE
+
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
@@ -38,7 +41,6 @@
 #define COMMERCIAL 0
 #define CARGO 1
 #define EMERGENCY 2
-#define RUNWAY_EMPTY -1
 
 #define NORTH 0
 #define SOUTH 1
@@ -48,16 +50,16 @@
 /* TODO */
 /* Add your synchronization variables here */
 
-sem_t runway_sem;  // controls how mnay aircrafts can be on runway
-pthread_mutex_t lock; // protects shared variables
-int runway_type = RUNWAY_EMPTY;
-
 /* basic information about simulation.  they are printed/checked at the end 
  * and in assert statements during execution.
  *
  * you are responsible for maintaining the integrity of these variables in the 
  * code that you develop. 
  */
+
+sem_t runway_sem;  // controls how mnay aircrafts can be on runway
+pthread_mutex_t lock = PTHREAD_COND_INITIALIZER; // protects shared variables
+pthread_cond_t cond_check = PTHREAD_COND_INITIALIZER;
 
 static int aircraft_on_runway = 0;       /* Total number of aircraft currently on runway */
 static int commercial_on_runway = 0;     /* Total number of commercial aircraft on runway */
@@ -66,6 +68,12 @@ static int emergency_on_runway = 0;      /* Total number of emergency aircraft o
 static int aircraft_since_break = 0;     /* Aircraft processed since last controller break */
 static int current_direction = NORTH;    /* Current runway direction (NORTH or SOUTH) */
 static int consecutive_direction = 0;    /* Consecutive aircraft in current direction */
+static int commercial_waiting = 0;
+static int cargo_waiting = 0;
+static int controller_break = 0; 
+static int type_count = 0;
+static int current_plane_type = -1;
+static int switching_direction = 0;
 
 
 typedef struct 
@@ -91,13 +99,14 @@ static int initialize(aircraft_info *ai, char *filename)
   aircraft_since_break  = 0;
   current_direction     = NORTH;
   consecutive_direction = 0;
+  commercial_waiting = 0;
+  cargo_waiting = 0;
+  controller_break = 0;
 
   /* Initialize your synchronization variables (and 
    * other variables you might use) here
    */
-  runway_type = RUNWAY_EMPTY;
   sem_init(&runway_sem, 0, MAX_RUNWAY_CAPACITY);
-  pthread_mutex_init(&lock, NULL);
 
   /* seed random number generator for fuel reserves */
   srand(time(NULL));
@@ -185,7 +194,44 @@ void *controller_thread(void *arg)
     /* without regard for runway capacity, aircraft type, direction,      */
     /* priorities, and whether the controller needs a break.              */
     /* You need to add all of this.                                       */
+    pthread_mutex_lock(&lock);
+
+    if (consecutive_direction >= DIRECTION_LIMIT || current_plane_type >= 4) {
+      int need_switch = 0;
+      if (current_direction == NORTH && cargo_waiting > 0) {
+        need_switch = 1;
+      } else if (current_direction == SOUTH && commercial_waiting > 0) {
+        need_switch = 1;
+      }
+
+      if (need_switch) {
+        switching_direction = 1;
+        while (aircraft_on_runway > 0) {
+          pthread_cond_wait(&cond_check, &lock);
+        }
+        sem_wait(&runway_sem);
+        switch_direction();
+        consecutive_direction = 0;
+        switching_direction = 0;
+        sem_post(&runway_sem);
+      }
+    }
     
+    if (aircraft_since_break >= CONTROLLER_LIMIT) {
+      controller_break = 1;
+      while (aircraft_on_runway > 0) {
+        pthread_cond_wait(&cond_check, &lock);
+      }
+
+      pthread_mutex_unlock(&lock);
+      take_break();
+      pthread_mutex_lock(&lock);
+      controller_break = 0; 
+      aircraft_since_break = 0;
+    }
+    
+    pthread_cond_broadcast(&cond_check);
+    pthread_mutex_unlock(&lock);
     /* Allow thread to be cancelled */
     pthread_testcancel();
     usleep(100000); // 100ms sleep to prevent busy waiting
@@ -209,23 +255,28 @@ void commercial_enter(aircraft_info *arg)
   /* Consider: runway capacity, direction (commercial prefer NORTH),       */
   /* controller breaks, fuel levels, emergency priorities, and fairness.   */
   /*  YOUR CODE HERE.                                                      */ 
-  sem_wait(&runway_sem);
-
+  usleep(100000);
   pthread_mutex_lock(&lock);
-  while (runway_type == CARGO) {
-    pthread_mutex_unlock(&lock);
-    usleep(100000);
-    pthread_mutex_lock(&lock);
-  }
-
-  if  (runway_type == RUNWAY_EMPTY) {
-    runway_type = COMMERCIAL;
+  while (aircraft_on_runway >= MAX_RUNWAY_CAPACITY || current_direction == SOUTH  
+  || switching_direction || controller_break) {
+    commercial_waiting = commercial_waiting + 1;
+    pthread_cond_wait(&cond_check, &lock);
+    commercial_waiting = commercial_waiting - 1;
   }
 
   aircraft_on_runway    = aircraft_on_runway + 1;
   aircraft_since_break  = aircraft_since_break + 1;
   commercial_on_runway  = commercial_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
+
+  if (arg->aircraft_type == current_plane_type) {
+    type_count = type_count + 1;
+  } else {
+    current_plane_type = arg->aircraft_type;
+    type_count = 1;
+  }
+
+  pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
 }
 
@@ -243,23 +294,28 @@ void cargo_enter(aircraft_info *ai)
   /* Consider: runway capacity, direction (cargo prefer SOUTH),            */
   /* controller breaks, fuel levels, emergency priorities, and fairness.   */
   /*  YOUR CODE HERE.                                                      */ 
-  sem_wait(&runway_sem);
 
   pthread_mutex_lock(&lock);
-   while (runway_type == COMMERCIAL) {
-    pthread_mutex_unlock(&lock);
-    usleep(100000);
-    pthread_mutex_lock(&lock);
-  }
-
-  if (runway_type == RUNWAY_EMPTY) {
-    runway_type == CARGO;
+   while (aircraft_on_runway >= MAX_RUNWAY_CAPACITY || current_direction == NORTH
+  || switching_direction || controller_break) {
+    cargo_waiting = cargo_waiting + 1;
+    pthread_cond_wait(&cond_check, &lock);
+    cargo_waiting = cargo_waiting - 1;
   }
 
   aircraft_on_runway    = aircraft_on_runway + 1;
   aircraft_since_break  = aircraft_since_break + 1;
   cargo_on_runway       = cargo_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
+
+  if (ai->aircraft_type == current_plane_type) {
+    type_count = type_count + 1;
+  } else {
+    current_plane_type = ai->aircraft_type;
+    type_count = 1;
+  }
+
+  pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
 }
 
@@ -278,13 +334,19 @@ void emergency_enter(aircraft_info *ai)
   /* but still respect runway capacity and controller breaks.              */
   /* Emergency aircraft can use either direction.                          */
   /*  YOUR CODE HERE.                                                      */ 
-  sem_wait(&runway_sem);
 
   pthread_mutex_lock(&lock);
+  while(aircraft_on_runway >= MAX_RUNWAY_CAPACITY || controller_break == 1 
+  || switching_direction == 1) {
+    pthread_cond_wait(&cond_check, &lock);
+  }
+
   aircraft_on_runway = aircraft_on_runway + 1;
   aircraft_since_break = aircraft_since_break + 1;
   emergency_on_runway = emergency_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
+
+  pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
 }
 
@@ -308,16 +370,12 @@ static void commercial_leave()
    *  YOUR CODE HERE.
    */
   pthread_mutex_lock(&lock);
+
   aircraft_on_runway = aircraft_on_runway - 1;
   commercial_on_runway = commercial_on_runway - 1;
+
+  pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
-
-  if(aircraft_on_runway == 0) {
-    runway_type = RUNWAY_EMPTY;
-  }
-
-  // free up runway slot
-  sem_post(&runway_sem);
 }
 
 /* Code executed by a cargo aircraft when leaving the runway.
@@ -331,15 +389,12 @@ static void cargo_leave()
    * YOUR CODE HERE. 
    */
   pthread_mutex_lock(&lock);
+
   aircraft_on_runway = aircraft_on_runway - 1;
   cargo_on_runway = cargo_on_runway - 1;
+
+  pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
-
-  if(aircraft_on_runway == 0) {
-    runway_type = RUNWAY_EMPTY;
-  }
-
-  sem_post(&runway_sem);
 }
 
 /* Code executed by an emergency aircraft when leaving the runway.
@@ -353,11 +408,12 @@ static void emergency_leave()
    * YOUR CODE HERE. 
    */
   pthread_mutex_lock(&lock);
+
   aircraft_on_runway = aircraft_on_runway - 1;
   emergency_on_runway = emergency_on_runway - 1;
-  pthread_mutex_unlock(&lock);
 
-  sem_post(&runway_sem);
+  pthread_cond_broadcast(&cond_check);
+  pthread_mutex_unlock(&lock);
 }
 
 /* Main code for commercial aircraft threads.  
