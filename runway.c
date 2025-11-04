@@ -1,3 +1,4 @@
+// Jacob Louanlavong, 100216948
 /* Copyright (c) 2025 Trevor Bakker
 *
 * This program is free software: you can redistribute it and/or modify
@@ -13,7 +14,7 @@
 * You should have received a copy of the GNU General Public License
 * along with this program.  If not, see <http://www.gnu.org/license/>.
 */
-// Jacob Louanlavong, 100216948
+
 
 #define _GNU_SOURCE
 
@@ -240,9 +241,12 @@ void *controller_thread(void *arg)
 }
 
 
-/* Code executed by a commercial aircraft to enter the runway.
- * You have to implement this.  Do not delete the assert() statements,
- * but feel free to add your own.
+/* 
+* Function: commercial_enter
+* Parameters: aircraft_info - pointer to aircraft structure
+* Returns: void
+* Description: handles the sync for a commercial airplane requesting runway access. Blocks until
+*              the aircraft can safetly use the runway according to all constraints
  */
 void commercial_enter(aircraft_info *arg) 
 {
@@ -274,9 +278,12 @@ void commercial_enter(aircraft_info *arg)
   pthread_mutex_unlock(&lock);
 }
 
-/* Code executed by a cargo aircraft to enter the runway.
- * You have to implement this.  Do not delete the assert() statements,
- * but feel free to add your own.
+/* 
+* Function: cargo_enter
+* Parameters: aircraft_info - pointer to aircraft structure
+* Returns: void
+* Description: handles the sync for a cargo airplane requesting runway access. Blocks until
+*              the aircraft can safetly use the runway according to all constraints
  */
 void cargo_enter(aircraft_info *ai) 
 {
@@ -308,9 +315,12 @@ void cargo_enter(aircraft_info *ai)
   pthread_mutex_unlock(&lock);
 }
 
-/* Code executed by an emergency aircraft to enter the runway.
- * You have to implement this.  Do not delete the assert() statements,
- * but feel free to add your own.
+/* 
+* Function: emergency_enter
+* Parameters: aircraft_info - pointer to aircraft structure
+* Returns: void
+* Description: handles the sync for a emergency airplane requesting runway access. Blocks until
+*              the aircraft can safetly use the runway according to all constraints
  */
 void emergency_enter(aircraft_info *ai) 
 {
