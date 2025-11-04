@@ -378,7 +378,7 @@ void emergency_enter(aircraft_info *ai)
   /* Emergency aircraft can use either direction.                          */
   /*  YOUR CODE HERE.                                                      */ 
 
-  
+
   pthread_mutex_lock(&lock);
   while(aircraft_on_runway >= MAX_RUNWAY_CAPACITY || controller_break == 1 
   || switching_direction == 1) {
@@ -417,13 +417,13 @@ static void commercial_leave()
    *  TODO
    *  YOUR CODE HERE.
    */
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(&lock); // ensure no race conditions occur
 
   aircraft_on_runway = aircraft_on_runway - 1;
   commercial_on_runway = commercial_on_runway - 1;
 
-  pthread_cond_broadcast(&cond_check);
-  pthread_mutex_unlock(&lock);
+  pthread_cond_broadcast(&cond_check); // signal all threads to recheck entry conditions
+  pthread_mutex_unlock(&lock); // unlock to allow other threads
 }
 
 /* 
@@ -440,13 +440,13 @@ static void cargo_leave()
    * TODO
    * YOUR CODE HERE. 
    */
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(&lock); // prevent race conditions
 
   aircraft_on_runway = aircraft_on_runway - 1;
   cargo_on_runway = cargo_on_runway - 1;
 
-  pthread_cond_broadcast(&cond_check);
-  pthread_mutex_unlock(&lock);
+  pthread_cond_broadcast(&cond_check); // signal all threads recheck
+  pthread_mutex_unlock(&lock); // unlock for other threads
 }
 
 /* 
@@ -463,13 +463,13 @@ static void emergency_leave()
    * TODO
    * YOUR CODE HERE. 
    */
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(&lock); // prevent race conditions
 
   aircraft_on_runway = aircraft_on_runway - 1;
   emergency_on_runway = emergency_on_runway - 1;
 
-  pthread_cond_broadcast(&cond_check);
-  pthread_mutex_unlock(&lock);
+  pthread_cond_broadcast(&cond_check); // signal for all threads to recheck conditions
+  pthread_mutex_unlock(&lock); // unlock for threads
 }
 
 /* Main code for commercial aircraft threads.  
