@@ -71,8 +71,6 @@ static int consecutive_direction = 0;    /* Consecutive aircraft in current dire
 static int commercial_waiting = 0;
 static int cargo_waiting = 0;
 static int controller_break = 0; 
-static int type_count = 0;
-static int current_plane_type = -1;
 static int switching_direction = 0;
 
 
@@ -102,6 +100,7 @@ static int initialize(aircraft_info *ai, char *filename)
   commercial_waiting = 0;
   cargo_waiting = 0;
   controller_break = 0;
+  switching_direction = 0;
 
   /* Initialize your synchronization variables (and 
    * other variables you might use) here
@@ -196,26 +195,27 @@ void *controller_thread(void *arg)
     /* You need to add all of this.                                       */
     pthread_mutex_lock(&lock);
 
-    if (consecutive_direction >= DIRECTION_LIMIT || current_plane_type >= 4) {
-      int need_switch = 0;
-      if (current_direction == NORTH && cargo_waiting > 0) {
-        need_switch = 1;
-      } else if (current_direction == SOUTH && commercial_waiting > 0) {
-        need_switch = 1;
-      }
+    int should_switch = 0;
 
-      if (need_switch) {
+    if (consecutive_direction >= DIRECTION_LIMIT) {
+      should_switch = 1;
+    } else if (aircraft_on_runway == 0) {
+        if (current_direction == NORTH && cargo_waiting > 0) {
+          should_switch = 1;
+      } else if (current_direction == SOUTH && commercial_waiting > 0) {
+        should_switch = 1;
+      }
+    }
+    
+
+      if (should_switch && aircraft_on_runway == 0) {
         switching_direction = 1;
-        while (aircraft_on_runway > 0) {
-          pthread_cond_wait(&cond_check, &lock);
-        }
         sem_wait(&runway_sem);
         switch_direction();
         consecutive_direction = 0;
         switching_direction = 0;
-        sem_post(&runway_sem);
+        pthread_cond_broadcast(&cond_check);
       }
-    }
     
     if (aircraft_since_break >= CONTROLLER_LIMIT) {
       controller_break = 1;
@@ -257,24 +257,18 @@ void commercial_enter(aircraft_info *arg)
   /*  YOUR CODE HERE.                                                      */ 
   usleep(100000);
   pthread_mutex_lock(&lock);
+  commercial_waiting = commercial_waiting + 1;
+
   while (aircraft_on_runway >= MAX_RUNWAY_CAPACITY || current_direction == SOUTH  
   || switching_direction || controller_break) {
-    commercial_waiting = commercial_waiting + 1;
     pthread_cond_wait(&cond_check, &lock);
-    commercial_waiting = commercial_waiting - 1;
   }
 
+  commercial_waiting = commercial_waiting - 1;
   aircraft_on_runway    = aircraft_on_runway + 1;
   aircraft_since_break  = aircraft_since_break + 1;
   commercial_on_runway  = commercial_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
-
-  if (arg->aircraft_type == current_plane_type) {
-    type_count = type_count + 1;
-  } else {
-    current_plane_type = arg->aircraft_type;
-    type_count = 1;
-  }
 
   pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
@@ -296,24 +290,19 @@ void cargo_enter(aircraft_info *ai)
   /*  YOUR CODE HERE.                                                      */ 
 
   pthread_mutex_lock(&lock);
+
+  cargo_waiting = cargo_waiting + 1;
+
    while (aircraft_on_runway >= MAX_RUNWAY_CAPACITY || current_direction == NORTH
   || switching_direction || controller_break) {
-    cargo_waiting = cargo_waiting + 1;
     pthread_cond_wait(&cond_check, &lock);
-    cargo_waiting = cargo_waiting - 1;
   }
 
+  cargo_waiting = cargo_waiting - 1;
   aircraft_on_runway    = aircraft_on_runway + 1;
   aircraft_since_break  = aircraft_since_break + 1;
   cargo_on_runway       = cargo_on_runway + 1;
   consecutive_direction = consecutive_direction + 1;
-
-  if (ai->aircraft_type == current_plane_type) {
-    type_count = type_count + 1;
-  } else {
-    current_plane_type = ai->aircraft_type;
-    type_count = 1;
-  }
 
   pthread_cond_broadcast(&cond_check);
   pthread_mutex_unlock(&lock);
