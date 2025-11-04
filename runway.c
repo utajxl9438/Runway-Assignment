@@ -269,7 +269,6 @@ void commercial_enter(aircraft_info *arg)
   /* Consider: runway capacity, direction (commercial prefer NORTH),       */
   /* controller breaks, fuel levels, emergency priorities, and fairness.   */
   /*  YOUR CODE HERE.                                                      */ 
-  usleep(100000);
   pthread_mutex_lock(&lock);
   commercial_waiting = commercial_waiting + 1;
 
